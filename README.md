@@ -81,6 +81,9 @@ npm start
 | 自动排课 | 基于约束满足问题(CSP)的智能排课算法 |
 | 手动调整 | 支持锁定课程、拖拽调整（后端API就绪） |
 | 冲突检测 | 自动检测教师/教室/班级三类时间冲突 |
+| 课表发布 | 发布前重新核对三类冲突，有冲突拒绝发布，通过后保存不可变快照新版本 |
+| 版本回读 | 查看学期全部发布版本，回读任意历史版本的课表快照 |
+| 并发互斥 | 多人同时发布同一学期只有一个成功，重复发布幂等，不产生半成品 |
 | 调课代课 | 支持课程交换和教师代课安排 |
 | 课表查看 | 班级/教师/教室三种视角的课表展示 |
 | 导出功能 | PDF 导出（ReportLab）和图片导出（html2canvas） |
@@ -132,12 +135,14 @@ npm start
 │   │   └── admin.py
 │   │
 │   └── scheduling/             # 排课业务应用
-│       ├── models.py           # 课程分配、课表条目、冲突、调课模型
+│       ├── models.py           # 课程分配、课表条目、冲突、调课、发布版本模型
+│       ├── services.py         # 课表发布服务（互斥锁 + 冲突复核 + 快照版本）
 │       ├── serializers.py
-│       ├── views.py            # 排课、调课、代课、导出 API
+│       ├── views.py            # 排课、调课、代课、发布版本、导出 API
 │       ├── urls.py
 │       ├── admin.py
 │       ├── csp_solver.py       # CSP 排课算法核心
+│       ├── tests.py            # 发布流程与版本回读测试
 │       └── pdf_export.py       # PDF 导出逻辑
 │
 └── frontend/                   # 前端 Angular 项目
@@ -171,7 +176,8 @@ npm start
                 ├── semesters/
                 ├── class-courses/
                 ├── timetable/
-                └── conflicts/
+                ├── conflicts/
+                └── versions/     # 课表发布与版本回读
 ```
 
 ## 环境变量说明
@@ -267,7 +273,19 @@ docker compose exec backend python manage.py createsuperuser
 | `/api/schedules/swap/` | POST | 交换两个课表条目 |
 | `/api/schedules/substitute/` | POST | 安排代课教师 |
 | `/api/schedules/export_pdf/?type=&id=&semester_id=` | GET | 导出 PDF 课表 |
+| `/api/schedule-versions/publish/` | POST | 发布课表（重新核对冲突，全部通过才生成新版本快照） |
+| `/api/schedule-versions/?semester_id=` | GET | 发布版本列表（不含快照正文） |
+| `/api/schedule-versions/{id}/` | GET | 回读指定版本完整快照（只读，PUT/PATCH/DELETE 返回 405） |
+| `/api/schedule-versions/latest/?semester_id=` | GET | 回读该学期最新发布版本 |
 | `/api/conflicts/` | GET | 查询冲突列表 |
+
+### 发布规则说明
+
+- 发布时按所选学期重新核对教师、班级、教室三类冲突；任一冲突即返回 `409` 并整体回滚，**原发布版本不变**。
+- 全部通过后保存课表快照（含班级/课程/教师/教室名称等冗余字段），并生成学期内递增版本号。
+- 多人同时发布同一学期：通过学期级行锁互斥（PostgreSQL `SELECT … FOR UPDATE NOWAIT`），未获锁方返回 `409 publish_in_progress`，只有一个发布成功。
+- 重复发布且课表内容未变化：幂等返回最新版本（`200 unchanged`），**不产生新版本、不留半成品**。
+- 已发布快照不可修改、不可删除（模型层与 API 层双重只读保护）；之后的调课、代课、自动重排只作用于工作区课表，不改写历史快照；再次发布可回读到新版本。
 
 ## License
 

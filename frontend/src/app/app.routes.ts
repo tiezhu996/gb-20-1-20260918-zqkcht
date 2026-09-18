@@ -37,5 +37,9 @@ export const routes: Routes = [
   {
     path: 'conflicts',
     loadComponent: () => import('./pages/conflicts/conflicts.component').then(m => m.ConflictsComponent)
+  },
+  {
+    path: 'versions',
+    loadComponent: () => import('./pages/versions/versions.component').then(m => m.VersionsComponent)
   }
 ];

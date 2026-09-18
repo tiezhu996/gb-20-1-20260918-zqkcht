@@ -1,6 +1,7 @@
 import { Component, OnInit, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterModule } from '@angular/router';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
@@ -24,6 +25,7 @@ import type {
   imports: [
     CommonModule,
     FormsModule,
+    RouterModule,
     MatSelectModule,
     MatButtonModule,
     MatCheckboxModule,
@@ -106,6 +108,16 @@ import type {
           <mat-icon>image</mat-icon>
           导出图片
         </button>
+        <button mat-raised-button color="warn"
+                (click)="publishCurrent()"
+                [disabled]="!selectedSemesterId || publishing">
+          <mat-icon>publish</mat-icon>
+          {{ publishing ? '发布中…' : '发布课表' }}
+        </button>
+        <a mat-raised-button color="primary" routerLink="/versions" [queryParams]="{ semester: selectedSemesterId }">
+          <mat-icon>history</mat-icon>
+          发布版本
+        </a>
       </div>
 
       <div class="timetable-container" #timetableContainer>
@@ -197,6 +209,7 @@ export class TimetableComponent implements OnInit {
   viewMode: 'class' | 'teacher' | 'classroom' = 'class';
   schedulingMessage: string = '';
   currentSemester: Semester | null = null;
+  publishing = false;
 
   weekDays = ['星期一', '星期二', '星期三', '星期四', '星期五'];
   periods = [
@@ -346,6 +359,33 @@ export class TimetableComponent implements OnInit {
   toggleLock(entry: ScheduleEntry): void {
     this.api.updateScheduleEntry(entry.id, { is_locked: !entry.is_locked }).subscribe(() => {
       entry.is_locked = !entry.is_locked;
+    });
+  }
+
+  publishCurrent(): void {
+    if (!this.selectedSemesterId || this.publishing) return;
+    this.publishing = true;
+    this.schedulingMessage = '正在重新核对教师、班级、教室冲突并发布…';
+    this.api.publishSchedule(this.selectedSemesterId).subscribe({
+      next: result => {
+        this.publishing = false;
+        this.schedulingMessage = result.status === 'created'
+          ? `发布成功：已生成 v${result.version.version_number}（共 ${result.version.entry_count} 条）。`
+          : result.message;
+      },
+      error: err => {
+        this.publishing = false;
+        const data = err.error || {};
+        if (data.error === 'conflicts_present') {
+          const count = (data.conflicts || []).length;
+          this.schedulingMessage =
+            `发布被拒绝：当前课表存在 ${count} 处冲突，原发布版本保持不变。请先解决冲突再发布。`;
+        } else if (data.error === 'publish_in_progress') {
+          this.schedulingMessage = data.message || '已有其他教务员正在发布，请稍后重试。';
+        } else {
+          this.schedulingMessage = data.message || '发布失败，请稍后重试。';
+        }
+      }
     });
   }
 

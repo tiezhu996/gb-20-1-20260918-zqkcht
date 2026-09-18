@@ -1,4 +1,5 @@
 from django.http import HttpResponse
+from django.db.models import Max
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -6,20 +7,27 @@ from rest_framework.permissions import AllowAny
 from django.db import transaction
 from core.models import Semester, Classroom, Teacher, Class
 from .models import (
-    ClassCourse, ScheduleEntry, Conflict, SwapRequest, Substitute
+    ClassCourse, ScheduleEntry, Conflict, SwapRequest, Substitute,
+    ScheduleVersion
 )
 from .serializers import (
     ClassCourseSerializer, ScheduleEntrySerializer,
     ScheduleEntryDetailSerializer, ConflictSerializer,
     SwapRequestSerializer, SubstituteSerializer,
     AutoScheduleRequestSerializer, ConflictCheckSerializer,
-    SwapScheduleRequestSerializer, SubstituteRequestSerializer
+    SwapScheduleRequestSerializer, SubstituteRequestSerializer,
+    PublishScheduleRequestSerializer,
+    ScheduleVersionListSerializer, ScheduleVersionDetailSerializer
 )
 from .csp_solver import CSPScheduler, ConflictDetector, SchedulingTask, TimeSlot
 from .pdf_export import (
     generate_class_timetable_pdf,
     generate_teacher_timetable_pdf,
     generate_classroom_timetable_pdf
+)
+from .services import (
+    publish_schedule, PublishError, PublishConflictError,
+    PublishInProgressError
 )
 
 
@@ -360,6 +368,109 @@ class ConflictViewSet(viewsets.ModelViewSet):
     queryset = Conflict.objects.all().select_related('semester')
     serializer_class = ConflictSerializer
     permission_classes = [AllowAny]
+
+
+class ScheduleVersionViewSet(viewsets.ReadOnlyModelViewSet):
+    """课表发布版本：提供发布入口和版本（快照）回读入口。"""
+    queryset = ScheduleVersion.objects.all().select_related('semester')
+    permission_classes = [AllowAny]
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return ScheduleVersionListSerializer
+        return ScheduleVersionDetailSerializer
+
+    def get_queryset(self):
+        queryset = self.queryset
+        semester_id = self.request.query_params.get('semester_id')
+        if semester_id:
+            queryset = queryset.filter(semester_id=semester_id)
+        return queryset
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        # 每个学期版本号最高的一条即最新发布版本
+        context['latest_version_ids'] = set(
+            ScheduleVersion.objects.values('semester_id')
+            .annotate(latest_id=Max('id'))
+            .values_list('latest_id', flat=True)
+        )
+        return context
+
+    @action(detail=False, methods=['post'])
+    def publish(self, request):
+        """发布课表：重新核对冲突，全部通过才保存快照并生成新版本。"""
+        req_serializer = PublishScheduleRequestSerializer(data=request.data)
+        if not req_serializer.is_valid():
+            return Response(
+                req_serializer.errors, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        published_by = (
+            request.user.username
+            if request.user and request.user.is_authenticated
+            else ''
+        )
+        note = req_serializer.validated_data.get('note') or ''
+
+        try:
+            version, created = publish_schedule(
+                semester_id=req_serializer.validated_data['semester_id'],
+                published_by=published_by,
+                note=note,
+            )
+        except PublishConflictError as exc:
+            return Response({
+                'error': 'conflicts_present',
+                'message': str(exc),
+                'conflicts': exc.conflicts,
+            }, status=status.HTTP_409_CONFLICT)
+        except PublishInProgressError as exc:
+            return Response({
+                'error': 'publish_in_progress',
+                'message': str(exc),
+            }, status=status.HTTP_409_CONFLICT)
+        except PublishError as exc:
+            return Response(
+                {'error': 'publish_failed', 'message': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = ScheduleVersionDetailSerializer(
+            version, context=self.get_serializer_context()
+        )
+        return Response({
+            'status': 'created' if created else 'unchanged',
+            'message': (
+                '发布成功，已生成新版本' if created
+                else '课表内容与最新发布版本一致，未重复生成版本'
+            ),
+            'version': serializer.data,
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'])
+    def latest(self, request):
+        """回读指定学期的最新发布版本（含完整快照）。"""
+        semester_id = request.query_params.get('semester_id')
+        if not semester_id:
+            return Response(
+                {'error': 'semester_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        version = (
+            ScheduleVersion.objects.select_related('semester')
+            .filter(semester_id=semester_id)
+            .first()
+        )
+        if version is None:
+            return Response(
+                {'error': '该学期尚无发布版本'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        serializer = ScheduleVersionDetailSerializer(
+            version, context=self.get_serializer_context()
+        )
+        return Response(serializer.data)
 
 
 class SwapRequestViewSet(viewsets.ModelViewSet):

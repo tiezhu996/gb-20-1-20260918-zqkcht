@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import (
-    ClassCourse, ScheduleEntry, Conflict, SwapRequest, Substitute
+    ClassCourse, ScheduleEntry, Conflict, SwapRequest, Substitute,
+    ScheduleVersion
 )
 
 
@@ -93,3 +94,39 @@ class SubstituteRequestSerializer(serializers.Serializer):
     start_date = serializers.DateField()
     end_date = serializers.DateField()
     reason = serializers.CharField()
+
+
+class PublishScheduleRequestSerializer(serializers.Serializer):
+    semester_id = serializers.IntegerField()
+    note = serializers.CharField(
+        required=False, allow_blank=True, allow_null=True
+    )
+
+
+class ScheduleVersionListSerializer(serializers.ModelSerializer):
+    semester_name = serializers.CharField(source='semester.name', read_only=True)
+    is_latest = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ScheduleVersion
+        fields = [
+            'id', 'semester', 'semester_name', 'version_number',
+            'entry_count', 'published_by', 'note', 'created_at',
+            'is_latest',
+        ]
+
+    def get_is_latest(self, obj):
+        # ordering 为版本号倒序，列表首项即最新版本
+        versions = self.context.get('latest_version_ids')
+        if versions is not None:
+            return obj.id in versions
+        latest = (
+            ScheduleVersion.objects.filter(semester_id=obj.semester_id)
+            .values_list('id', flat=True).first()
+        )
+        return obj.id == latest
+
+
+class ScheduleVersionDetailSerializer(ScheduleVersionListSerializer):
+    class Meta(ScheduleVersionListSerializer.Meta):
+        fields = ScheduleVersionListSerializer.Meta.fields + ['snapshot', 'content_hash']

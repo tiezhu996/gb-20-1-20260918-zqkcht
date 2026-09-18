@@ -133,3 +133,46 @@ export interface Substitute {
   created_at?: string;
   updated_at?: string;
 }
+
+export interface ScheduleSnapshotEntry {
+  entry_key?: [number, number, number, number, number, number];
+  class_id: number;
+  class_name: string;
+  course: number;
+  course_name: string;
+  teacher: number;
+  teacher_name: string;
+  classroom: number;
+  classroom_name: string;
+  day_of_week: number;
+  period: number;
+  is_locked: boolean;
+  original_teacher?: number;
+  original_teacher_name?: string;
+}
+
+export interface ScheduleVersion {
+  id: number;
+  semester: number;
+  semester_name?: string;
+  version_number: number;
+  entry_count: number;
+  published_by: string;
+  note: string;
+  created_at?: string;
+  is_latest?: boolean;
+  snapshot?: ScheduleSnapshotEntry[];
+  content_hash?: string;
+}
+
+export interface PublishResult {
+  status: 'created' | 'unchanged';
+  message: string;
+  version: ScheduleVersion;
+}
+
+export interface PublishConflictResponse {
+  error: 'conflicts_present' | 'publish_in_progress' | 'publish_failed';
+  message: string;
+  conflicts?: Conflict[];
+}

@@ -2,6 +2,72 @@ from django.db import models
 from core.models import Classroom, Teacher, Class, Course, Semester
 
 
+class ImmutableVersionError(Exception):
+    """已发布的课表快照不可修改或删除。"""
+
+
+class ImmutableSnapshotQuerySet(models.QuerySet):
+    """已发布快照只允许追加，不允许整体更新或删除。"""
+
+    def delete(self):
+        raise ImmutableVersionError('已发布的课表快照不可删除')
+
+    def update(self, **kwargs):
+        raise ImmutableVersionError('已发布的课表快照不可修改')
+
+
+class ScheduleVersion(models.Model):
+    """课表发布版本：保存发布时刻的课表快照，一经生成即不可变。"""
+
+    semester = models.ForeignKey(
+        Semester, on_delete=models.PROTECT, related_name='schedule_versions'
+    )
+    version_number = models.PositiveIntegerField(help_text='学期内递增的发布版本号')
+    snapshot = models.JSONField(help_text='发布时刻全部课表条目的快照')
+    entry_count = models.PositiveIntegerField(default=0, help_text='快照内条目数')
+    content_hash = models.CharField(
+        max_length=64, help_text='快照内容指纹，用于识别重复发布'
+    )
+    published_by = models.CharField(max_length=150, blank=True, help_text='发布人')
+    note = models.CharField(max_length=255, blank=True, help_text='发布备注')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = ImmutableSnapshotQuerySet.as_manager()
+
+    class Meta:
+        ordering = ['-version_number']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['semester', 'version_number'],
+                name='unique_version_number_per_semester'
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.semester} - v{self.version_number}"
+
+    def save(self, *args, **kwargs):
+        # 快照只允许首次写入（INSERT），不允许任何后续改写
+        if not self._state.adding:
+            raise ImmutableVersionError('已发布的课表快照不可修改')
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ImmutableVersionError('已发布的课表快照不可删除')
+
+
+class SchedulePublishLock(models.Model):
+    """学期级发布互斥锁，保证同一学期同时只有一个发布操作。"""
+
+    semester = models.OneToOneField(
+        Semester, on_delete=models.CASCADE, related_name='publish_lock'
+    )
+    locked_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"发布锁: {self.semester}"
+
+
 class ClassCourse(models.Model):
     class_id = models.ForeignKey(Class, on_delete=models.CASCADE, related_name='course_assignments')
     course = models.ForeignKey(Course, on_delete=models.CASCADE)

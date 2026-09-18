@@ -4,7 +4,8 @@ import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
 import type {
   Classroom, Teacher, Class, Course, Semester,
-  ClassCourse, ScheduleEntry, Conflict, SwapRequest, Substitute
+  ClassCourse, ScheduleEntry, Conflict, SwapRequest, Substitute,
+  ScheduleVersion, PublishResult
 } from '../types';
 
 @Injectable({ providedIn: 'root' })
@@ -183,5 +184,27 @@ export class ApiService {
       params,
       responseType: 'blob'
     });
+  }
+
+  publishSchedule(semesterId: number, note?: string): Observable<PublishResult> {
+    return this.http.post<PublishResult>(`${this.baseUrl}/schedule-versions/publish/`, {
+      semester_id: semesterId,
+      note: note || ''
+    });
+  }
+
+  getScheduleVersions(semesterId?: number): Observable<ScheduleVersion[]> {
+    let params = new HttpParams();
+    if (semesterId) params = params.set('semester_id', semesterId.toString());
+    return this.http.get<ScheduleVersion[]>(`${this.baseUrl}/schedule-versions/`, { params });
+  }
+
+  getScheduleVersion(versionId: number): Observable<ScheduleVersion> {
+    return this.http.get<ScheduleVersion>(`${this.baseUrl}/schedule-versions/${versionId}/`);
+  }
+
+  getLatestScheduleVersion(semesterId: number): Observable<ScheduleVersion> {
+    const params = new HttpParams().set('semester_id', semesterId.toString());
+    return this.http.get<ScheduleVersion>(`${this.baseUrl}/schedule-versions/latest/`, { params });
   }
 }
