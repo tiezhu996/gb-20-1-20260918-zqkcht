@@ -62,6 +62,10 @@ import { MatIconModule } from '@angular/material/icon';
               <mat-icon>warning</mat-icon>
               <span>冲突管理</span>
             </a>
+            <a mat-list-item routerLink="/publications" routerLinkActive="active" class="nav-list-item">
+              <mat-icon>publish</mat-icon>
+              <span>课表发布</span>
+            </a>
           </mat-nav-list>
         </mat-sidenav>
 

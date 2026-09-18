@@ -133,3 +133,34 @@ export interface Substitute {
   created_at?: string;
   updated_at?: string;
 }
+
+export interface ScheduleVersion {
+  id: number;
+  semester: number;
+  version_number: number;
+  status: 'published';
+  entry_count: number;
+  content_hash: string;
+  comment: string;
+  published_by: string;
+  published_at: string;
+  entries?: ScheduleSnapshotEntry[];
+}
+
+export interface ScheduleSnapshotEntry {
+  id: number;
+  version: number;
+  semester: number;
+  source_entry_id: number | null;
+  class_id: number;
+  class_name: string;
+  course: number;
+  course_name: string;
+  teacher: number;
+  teacher_name: string;
+  classroom: number;
+  classroom_name: string;
+  day_of_week: number;
+  period: number;
+  is_locked: boolean;
+}

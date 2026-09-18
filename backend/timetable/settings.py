@@ -20,6 +20,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'core',
     'scheduling',
+    'publication',
 ]
 
 MIDDLEWARE = [

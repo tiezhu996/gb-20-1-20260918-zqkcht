@@ -83,6 +83,7 @@ npm start
 | 冲突检测 | 自动检测教师/教室/班级三类时间冲突 |
 | 调课代课 | 支持课程交换和教师代课安排 |
 | 课表查看 | 班级/教师/教室三种视角的课表展示 |
+| 课表发布版本 | 发布前按当前学期复核教师/班级/教室冲突，通过后保存只读快照并生成递增版本，支持历史版本回读 |
 | 导出功能 | PDF 导出（ReportLab）和图片导出（html2canvas） |
 
 ## 技术栈
@@ -140,6 +141,15 @@ npm start
 │       ├── csp_solver.py       # CSP 排课算法核心
 │       └── pdf_export.py       # PDF 导出逻辑
 │
+│   └── publication/            # 课表发布版本应用
+│       ├── models.py           # 发布版本 ScheduleVersion + 快照条目 ScheduleSnapshotEntry
+│       ├── services.py         # 发布领域服务（事务、行锁串行化、冲突复核、指纹去重）
+│       ├── serializers.py      # DRF 序列化器
+│       ├── views.py            # 发布与版本回读 API
+│       ├── urls.py             # 路由
+│       ├── admin.py            # Admin 只读注册
+│       └── tests.py            # 发布/回读/冲突/并发互斥测试
+│
 └── frontend/                   # 前端 Angular 项目
     ├── Dockerfile
     ├── nginx.conf
@@ -171,7 +181,8 @@ npm start
                 ├── semesters/
                 ├── class-courses/
                 ├── timetable/
-                └── conflicts/
+                ├── conflicts/
+                └── publications/
 ```
 
 ## 环境变量说明
@@ -268,6 +279,10 @@ docker compose exec backend python manage.py createsuperuser
 | `/api/schedules/substitute/` | POST | 安排代课教师 |
 | `/api/schedules/export_pdf/?type=&id=&semester_id=` | GET | 导出 PDF 课表 |
 | `/api/conflicts/` | GET | 查询冲突列表 |
+| `/api/schedule-versions/publish/` | POST | 发布当前课表（有冲突/重复发布返回 409，成功生成新版本） |
+| `/api/schedule-versions/by_semester/?semester_id=` | GET | 按学期列出发布版本 |
+| `/api/schedule-versions/latest/?semester_id=` | GET | 回读某学期最新版本（含快照条目） |
+| `/api/schedule-versions/{id}/entries/` | GET | 回读指定版本的课表快照 |
 
 ## License
 
